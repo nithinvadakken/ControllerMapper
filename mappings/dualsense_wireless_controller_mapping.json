@@ -1,0 +1,17 @@
+{
+    "L2": "q",
+    "R2": "w",
+    "X": "1",
+    "Circle": "2",
+    "Square": "3",
+    "Triangle": "4",
+    "Create": "5",
+    "Up": "up",
+    "Down": "down",
+    "Left": "left",
+    "Right": "right",
+    "Left Stick Right": "right",
+    "Left Stick Left": "left",
+    "Left Stick Down": "up",
+    "Left Stick Up": "down"
+}
