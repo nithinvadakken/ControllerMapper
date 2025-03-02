@@ -5,21 +5,16 @@ import time
 import sys
 import os
 import keyboard  # pip install keyboard
-from ui import run_ui
+from ui import run_ui, build_3column_inputs
 
-# Global flag for continuous key input.
 continuous_input_enabled = True
 
 AXIS_THRESHOLD = 0.5
 DEADZONE = 0.1  # Ignore small axis values
-REPEAT_INTERVAL = 0.01
+TRIGGER_THRESHOLD = 0.5  # For trigger axes (assumed range 0 to 1)
+REPEAT_INTERVAL = 0.1
 
 def load_button_names(joystick):
-    """
-    Loads a controller profile from the 'controllerMappingNames' directory.
-    Expects a JSON file with keys "buttons", "axes", and "hats".
-    Returns a dictionary with these keys.
-    """
     js_name = joystick.get_name()
     sanitized = js_name.lower().replace(" ", "_")
     folder = "controllerMappingNames"
@@ -67,11 +62,6 @@ def load_button_names(joystick):
     return result
 
 def get_mapping_filename(joystick):
-    """
-    Returns the mapping file path in the format:
-      mappings/[sanitized_controller_name]_mapping.json
-    Creates the 'mappings' directory if it doesn't exist.
-    """
     js_name = joystick.get_name()
     sanitized = js_name.lower().replace(" ", "_")
     directory = "mappings"
@@ -80,15 +70,9 @@ def get_mapping_filename(joystick):
     return os.path.join(directory, f"{sanitized}_mapping.json")
 
 def controller_listener(joystick, mapping_dict, controller_names, stop_event):
-    """
-    Listens for controller events and continuously sends key events based on the current mapping.
-    Axis inputs are polled with a deadzone; only axes defined in the profile are processed.
-    Includes logging to the terminal for repeated key presses.
-    """
     global continuous_input_enabled
     active_keys = {}
     num_axes = joystick.get_numaxes()
-
     last_repeat = time.time()
 
     while not stop_event.is_set():
@@ -99,13 +83,13 @@ def controller_listener(joystick, mapping_dict, controller_names, stop_event):
                 btn_name = names_buttons.get(button, f"Button {button}")
                 if btn_name in mapping_dict:
                     active_keys[btn_name] = mapping_dict[btn_name]
-                    print(f"[Controller] Pressed input '{btn_name}', mapped to key '{mapping_dict[btn_name]}'")
+                    print(f"[Controller] Button '{btn_name}' pressed, mapped to '{mapping_dict[btn_name]}'")
             elif event.type == pygame.JOYBUTTONUP:
                 button = event.button
                 names_buttons = controller_names.get("buttons", {})
                 btn_name = names_buttons.get(button, f"Button {button}")
                 if btn_name in active_keys:
-                    print(f"[Controller] Released input '{btn_name}'")
+                    print(f"[Controller] Button '{btn_name}' released")
                     active_keys.pop(btn_name, None)
             elif event.type == pygame.JOYHATMOTION:
                 hat = event.hat
@@ -122,33 +106,27 @@ def controller_listener(joystick, mapping_dict, controller_names, stop_event):
                     down_name = f"Hat {hat} Down"
                     left_name = f"Hat {hat} Left"
                     right_name = f"Hat {hat} Right"
-                
-                # Up
                 if y == 1:
                     active_keys[up_name] = mapping_dict.get(up_name, None)
-                    print(f"[Controller] Hat up -> mapped to '{active_keys[up_name]}'")
+                    print(f"[Controller] Hat up activated, mapped to '{active_keys.get(up_name)}'")
                 else:
                     active_keys.pop(up_name, None)
-                # Down
                 if y == -1:
                     active_keys[down_name] = mapping_dict.get(down_name, None)
-                    print(f"[Controller] Hat down -> mapped to '{active_keys[down_name]}'")
+                    print(f"[Controller] Hat down activated, mapped to '{active_keys.get(down_name)}'")
                 else:
                     active_keys.pop(down_name, None)
-                # Left
                 if x == -1:
                     active_keys[left_name] = mapping_dict.get(left_name, None)
-                    print(f"[Controller] Hat left -> mapped to '{active_keys[left_name]}'")
+                    print(f"[Controller] Hat left activated, mapped to '{active_keys.get(left_name)}'")
                 else:
                     active_keys.pop(left_name, None)
-                # Right
                 if x == 1:
                     active_keys[right_name] = mapping_dict.get(right_name, None)
-                    print(f"[Controller] Hat right -> mapped to '{active_keys[right_name]}'")
+                    print(f"[Controller] Hat right activated, mapped to '{active_keys.get(right_name)}'")
                 else:
                     active_keys.pop(right_name, None)
         
-        # Poll axes
         for axis in range(num_axes):
             names_axes = controller_names.get("axes", {})
             if axis not in names_axes:
@@ -157,32 +135,42 @@ def controller_listener(joystick, mapping_dict, controller_names, stop_event):
             if abs(value) < DEADZONE:
                 value = 0
             axis_names = names_axes[axis]
-            pos_name = axis_names.get("positive", f"Axis {axis} Positive")
-            neg_name = axis_names.get("negative", f"Axis {axis} Negative")
-            if value > AXIS_THRESHOLD:
-                if pos_name not in active_keys:
-                    print(f"[Controller] Axis {axis} positive -> '{mapping_dict.get(pos_name)}'")
-                active_keys[pos_name] = mapping_dict.get(pos_name, None)
+            if "trigger" in axis_names:
+                trigger_name = axis_names["trigger"]
+                if value > TRIGGER_THRESHOLD:
+                    active_keys[trigger_name] = mapping_dict.get(trigger_name, None)
+                    print(f"[Controller] Trigger '{trigger_name}' activated, mapped to '{mapping_dict.get(trigger_name)}'")
+                else:
+                    if trigger_name in active_keys:
+                        print(f"[Controller] Trigger '{trigger_name}' released")
+                    active_keys.pop(trigger_name, None)
             else:
-                if pos_name in active_keys:
-                    print(f"[Controller] Axis {axis} positive deactivated '{pos_name}'")
-                active_keys.pop(pos_name, None)
-            
-            if value < -AXIS_THRESHOLD:
-                if neg_name not in active_keys:
-                    print(f"[Controller] Axis {axis} negative -> '{mapping_dict.get(neg_name)}'")
-                active_keys[neg_name] = mapping_dict.get(neg_name, None)
-            else:
-                if neg_name in active_keys:
-                    print(f"[Controller] Axis {axis} negative deactivated '{neg_name}'")
-                active_keys.pop(neg_name, None)
+                if "positive" in axis_names:
+                    pos_name = axis_names["positive"]
+                    if value > AXIS_THRESHOLD:
+                        active_keys[pos_name] = mapping_dict.get(pos_name, None)
+                        print(f"[Controller] Axis {axis} positive ('{pos_name}') activated, mapped to '{mapping_dict.get(pos_name)}'")
+                    else:
+                        if pos_name in active_keys:
+                            print(f"[Controller] Axis {axis} positive ('{pos_name}') deactivated")
+                        active_keys.pop(pos_name, None)
+                # Only check for negative if defined.
+                if "negative" in axis_names:
+                    neg_name = axis_names["negative"]
+                    if value < -AXIS_THRESHOLD:
+                        active_keys[neg_name] = mapping_dict.get(neg_name, None)
+                        print(f"[Controller] Axis {axis} negative ('{neg_name}') activated, mapped to '{mapping_dict.get(neg_name)}'")
+                    else:
+                        if neg_name in active_keys:
+                            print(f"[Controller] Axis {axis} negative ('{neg_name}') deactivated")
+                        active_keys.pop(neg_name, None)
         
         if continuous_input_enabled:
             current_time = time.time()
             if current_time - last_repeat >= REPEAT_INTERVAL:
                 for key in list(active_keys.values()):
                     if key:
-                        print(f"[Controller] Repeated key: '{key}'")  # <--- Logging repeated press
+                        print(f"[Controller] Repeating key: '{key}'")
                         keyboard.send(key)
                 last_repeat = current_time
         time.sleep(0.01)
@@ -210,6 +198,11 @@ def main():
     else:
         print("No existing mapping found. Starting with an empty mapping.")
 
+    try:
+        battery_info = joystick.get_power_level()
+    except Exception as e:
+        battery_info = "N/A"
+    
     stop_event = threading.Event()
     listener_thread = threading.Thread(
         target=controller_listener,
@@ -219,8 +212,8 @@ def main():
     listener_thread.start()
 
     controller_name = joystick.get_name()
-    # Pass controller_names so UI can build a 3-column layout if no diagram is found.
-    run_ui(mapping_dict, mapping_filename, controller_name, controller_names, background_dir="ui")
+    from ui import run_ui
+    run_ui(mapping_dict, mapping_filename, controller_name, controller_names, background_dir="ui", battery_info=str(battery_info))
 
     stop_event.set()
     pygame.quit()
